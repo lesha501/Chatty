@@ -3,7 +3,7 @@ import axios from 'axios';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
-function Settings({ user, onClose, onUpdate, applyTheme, onLogout }) {
+function Settings({ user, onClose, onUpdate, applyTheme }) {
   const [activeTab, setActiveTab] = useState('profile');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -43,10 +43,6 @@ function Settings({ user, onClose, onUpdate, applyTheme, onLogout }) {
     
     try {
       const token = localStorage.getItem('token');
-      if (!token) {
-        throw new Error('Токен не найден');
-      }
-      
       const res = await axios.post(`${API_URL}/api/upload-avatar`, formData, {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -67,9 +63,6 @@ function Settings({ user, onClose, onUpdate, applyTheme, onLogout }) {
     
     try {
       const token = localStorage.getItem('token');
-      if (!token) {
-        throw new Error('Токен не найден');
-      }
       
       let avatarUrl = user.avatar;
       if (avatarFile) {
@@ -77,9 +70,7 @@ function Settings({ user, onClose, onUpdate, applyTheme, onLogout }) {
       }
       
       const res = await axios.put(`${API_URL}/api/profile`, profile, {
-        headers: { 
-          'Authorization': `Bearer ${token}` 
-        }
+        headers: { 'Authorization': `Bearer ${token}` }
       });
       
       const updatedUser = { ...res.data, avatar: avatarUrl };
@@ -87,7 +78,6 @@ function Settings({ user, onClose, onUpdate, applyTheme, onLogout }) {
       onUpdate(updatedUser);
       setSuccess('Профиль обновлён! ✨');
     } catch (err) {
-      console.error('Ошибка:', err);
       setError(err.response?.data?.error || err.message || 'Ошибка обновления');
     } finally {
       setLoading(false);
@@ -101,37 +91,21 @@ function Settings({ user, onClose, onUpdate, applyTheme, onLogout }) {
     
     try {
       const token = localStorage.getItem('token');
-      if (!token) {
-        throw new Error('Токен не найден');
-      }
       
       const res = await axios.put(`${API_URL}/api/settings`, settings, {
-        headers: { 
-          'Authorization': `Bearer ${token}` 
-        }
+        headers: { 'Authorization': `Bearer ${token}` }
       });
       
       const updatedUser = { ...user, ...res.data };
       localStorage.setItem('user', JSON.stringify(updatedUser));
       onUpdate(updatedUser);
-      
-      if (applyTheme) {
-        applyTheme(settings.theme);
-      }
-      
+      applyTheme(settings.theme);
       setSuccess('Настройки сохранены! ⚙️');
+      
     } catch (err) {
-      console.error('Ошибка:', err);
       setError(err.response?.data?.error || err.message || 'Ошибка сохранения');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleLogout = () => {
-    if (onLogout) {
-      onLogout();
-      onClose();
     }
   };
 
@@ -159,17 +133,8 @@ function Settings({ user, onClose, onUpdate, applyTheme, onLogout }) {
         </div>
 
         <div className="settings-body">
-          {error && (
-            <div className="error-message">
-              ❌ {error}
-            </div>
-          )}
-
-          {success && (
-            <div className="success-message">
-              ✓ {success}
-            </div>
-          )}
+          {error && <div className="error-message">❌ {error}</div>}
+          {success && <div className="success-message">✓ {success}</div>}
 
           {activeTab === 'profile' && (
             <div>
@@ -231,7 +196,6 @@ function Settings({ user, onClose, onUpdate, applyTheme, onLogout }) {
                   value={profile.phone || ''}
                   onChange={(e) => setProfile({...profile, phone: e.target.value})}
                 />
-                <small>Необязательно</small>
               </div>
 
               <div className="form-group">
@@ -250,7 +214,6 @@ function Settings({ user, onClose, onUpdate, applyTheme, onLogout }) {
             <div>
               <div className="settings-section">
                 <h3>Внешний вид</h3>
-                
                 <div className="form-group">
                   <label>Тема оформления</label>
                   <select
@@ -266,7 +229,6 @@ function Settings({ user, onClose, onUpdate, applyTheme, onLogout }) {
 
               <div className="settings-section">
                 <h3>Уведомления</h3>
-                
                 <label className="checkbox-label">
                   <input
                     type="checkbox"
@@ -284,37 +246,6 @@ function Settings({ user, onClose, onUpdate, applyTheme, onLogout }) {
                   />
                   <span>Звук сообщений</span>
                 </label>
-              </div>
-
-              {/* КНОПКА ВЫХОДА */}
-              <div className="settings-section" style={{ borderBottom: 'none' }}>
-                <h3 style={{ color: '#ff6b6b' }}>Опасная зона</h3>
-                <button 
-                  onClick={handleLogout}
-                  className="logout-button"
-                  style={{
-                    width: '100%',
-                    padding: '12px',
-                    background: 'transparent',
-                    border: '1px solid #ff6b6b',
-                    borderRadius: '10px',
-                    color: '#ff6b6b',
-                    fontSize: '16px',
-                    cursor: 'pointer',
-                    transition: 'all 0.3s',
-                    marginTop: '10px'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.target.style.background = '#ff6b6b';
-                    e.target.style.color = 'white';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.target.style.background = 'transparent';
-                    e.target.style.color = '#ff6b6b';
-                  }}
-                >
-                  🚪 Выйти из аккаунта
-                </button>
               </div>
             </div>
           )}

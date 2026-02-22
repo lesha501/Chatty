@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import io from 'socket.io-client';
 import Settings from './components/Settings';
@@ -21,9 +21,6 @@ function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [selectedImage, setSelectedImage] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
-  const [typingStatus, setTypingStatus] = useState({});
-  const typingTimeoutRef = useRef(null);
-  const messagesEndRef = useRef(null);
 
   const [formData, setFormData] = useState({
     email: '',
@@ -34,16 +31,6 @@ function App() {
     phone: ''
   });
 
-  // Автоскролл к новым сообщениям
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
-
-  // Функция для применения темы
   const applyTheme = (theme) => {
     const root = document.documentElement;
     root.classList.remove('theme-dark', 'theme-light', 'theme-purple');
@@ -60,37 +47,21 @@ function App() {
     }
   };
 
-  // Загружаем пользователя из localStorage при старте
   useEffect(() => {
     const savedUser = localStorage.getItem('user');
     const savedToken = localStorage.getItem('token');
-    
     if (savedUser && savedToken) {
       setUser(JSON.parse(savedUser));
     }
   }, []);
 
-  // Загрузка пользователей и чатов
   useEffect(() => {
     if (user) {
       fetchUsers();
       socket.emit('user-online', user.id);
       
       socket.on('new-message', (message) => {
-        console.log('🔥 Новое сообщение:', message);
         if (selectedUser && message.senderId === selectedUser.id) {
-          setMessages(prev => [...prev, message]);
-          // Отмечаем как прочитано
-          socket.emit('mark-read', {
-            conversationId: message.conversationId,
-            userId: user.id
-          });
-        }
-      });
-
-      socket.on('message-sent', (message) => {
-        console.log('✅ Сообщение отправлено:', message);
-        if (selectedUser && message.senderId === user.id) {
           setMessages(prev => [...prev, message]);
         }
       });
@@ -100,31 +71,11 @@ function App() {
           u.id === userId ? { ...u, online } : u
         ));
       });
-
-      socket.on('typing-indicator', ({ userId, conversationId, isTyping }) => {
-        if (selectedUser && selectedUser.id === userId) {
-          setTypingStatus(prev => ({
-            ...prev,
-            [userId]: isTyping
-          }));
-        }
-      });
-
-      socket.on('messages-read', ({ conversationId, userId }) => {
-        if (selectedUser && selectedUser.id === userId) {
-          setMessages(prev => prev.map(msg => 
-            msg.senderId === user.id ? { ...msg, read: true } : msg
-          ));
-        }
-      });
     }
 
     return () => {
       socket.off('new-message');
-      socket.off('message-sent');
       socket.off('user-status');
-      socket.off('typing-indicator');
-      socket.off('messages-read');
     };
   }, [user, selectedUser]);
 
@@ -152,12 +103,6 @@ function App() {
       
       const messagesRes = await API.get(`/api/messages/${convRes.data.id}`);
       setMessages(messagesRes.data);
-      
-      // Отмечаем сообщения как прочитанные
-      socket.emit('mark-read', {
-        conversationId: convRes.data.id,
-        userId: user.id
-      });
     } catch (err) {
       console.error('Ошибка загрузки сообщений:', err);
     }
@@ -208,30 +153,6 @@ function App() {
       setSelectedImage(file);
       setImagePreview(URL.createObjectURL(file));
     }
-  };
-
-  const handleTyping = () => {
-    if (!selectedUser) return;
-    
-    socket.emit('typing', {
-      userId: user.id,
-      receiverId: selectedUser.id,
-      conversationId: `${user.id}-${selectedUser.id}`,
-      isTyping: true
-    });
-
-    if (typingTimeoutRef.current) {
-      clearTimeout(typingTimeoutRef.current);
-    }
-
-    typingTimeoutRef.current = setTimeout(() => {
-      socket.emit('typing', {
-        userId: user.id,
-        receiverId: selectedUser.id,
-        conversationId: `${user.id}-${selectedUser.id}`,
-        isTyping: false
-      });
-    }, 1000);
   };
 
   const handleRegister = async (e) => {
@@ -292,30 +213,6 @@ function App() {
     u.displayName.toLowerCase().includes(searchQuery.toLowerCase()) ||
     u.username.toLowerCase().includes(searchQuery.toLowerCase())
   );
-
-  const renderMessage = (msg) => {
-    if (msg.text?.startsWith('📷:')) {
-      const imageUrl = msg.text.substring(3);
-      return (
-        <img 
-          src={imageUrl} 
-          alt="chat"
-          style={{ maxWidth: '200px', maxHeight: '200px', borderRadius: '10px', cursor: 'pointer' }}
-          onClick={() => window.open(imageUrl, '_blank')}
-        />
-      );
-    }
-    return (
-      <>
-        <div className="message-text">{msg.text}</div>
-        {msg.senderId === user.id && (
-          <div className="message-status">
-            {msg.read ? '✓✓' : '✓'}
-          </div>
-        )}
-      </>
-    );
-  };
 
   const getAvatarUrl = (avatarPath) => {
     if (!avatarPath) return null;
@@ -444,23 +341,19 @@ function App() {
                     {selectedUser.online && <span className="online-dot"> ● онлайн</span>}
                   </div>
                 </div>
-                {typingStatus[selectedUser.id] && (
-                  <div className="typing-indicator">печатает...</div>
-                )}
               </div>
 
               <div className="messages-container">
                 {messages.map(msg => (
                   <div key={msg.id} className={`message ${msg.senderId === user.id ? 'own' : 'other'}`}>
                     <div className="message-bubble">
-                      {renderMessage(msg)}
+                      <div className="message-text">{msg.text}</div>
                       <div className="message-time">
                         {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </div>
                     </div>
                   </div>
                 ))}
-                <div ref={messagesEndRef} />
               </div>
 
               {imagePreview && (
@@ -481,7 +374,6 @@ function App() {
                   type="text"
                   value={newMessage}
                   onChange={(e) => setNewMessage(e.target.value)}
-                  onKeyDown={handleTyping}
                   onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
                   placeholder="Напишите сообщение..."
                   className="message-input"
@@ -508,7 +400,6 @@ function App() {
           onClose={() => setShowSettings(false)} 
           onUpdate={handleUpdateUser} 
           applyTheme={applyTheme}
-          onLogout={handleLogout}
         />
       )}
     </>
