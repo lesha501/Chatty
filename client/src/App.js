@@ -1,10 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import io from 'socket.io-client';
 import Settings from './components/Settings';
 import './index.css';
 
-// ========== ИСПРАВЛЕНО: используем переменную окружения ==========
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 const API = axios.create({ baseURL: API_URL });
 const socket = io(API_URL);
@@ -22,6 +21,9 @@ function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [selectedImage, setSelectedImage] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
+  const [typingStatus, setTypingStatus] = useState({});
+  const typingTimeoutRef = useRef(null);
+  const messagesEndRef = useRef(null);
 
   const [formData, setFormData] = useState({
     email: '',
@@ -31,6 +33,15 @@ function App() {
     login: '',
     phone: ''
   });
+
+  // Автоскролл к новым сообщениям
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
 
   // Функция для применения темы
   const applyTheme = (theme) => {
@@ -66,7 +77,20 @@ function App() {
       socket.emit('user-online', user.id);
       
       socket.on('new-message', (message) => {
+        console.log('🔥 Новое сообщение:', message);
         if (selectedUser && message.senderId === selectedUser.id) {
+          setMessages(prev => [...prev, message]);
+          // Отмечаем как прочитано
+          socket.emit('mark-read', {
+            conversationId: message.conversationId,
+            userId: user.id
+          });
+        }
+      });
+
+      socket.on('message-sent', (message) => {
+        console.log('✅ Сообщение отправлено:', message);
+        if (selectedUser && message.senderId === user.id) {
           setMessages(prev => [...prev, message]);
         }
       });
@@ -76,11 +100,31 @@ function App() {
           u.id === userId ? { ...u, online } : u
         ));
       });
+
+      socket.on('typing-indicator', ({ userId, conversationId, isTyping }) => {
+        if (selectedUser && selectedUser.id === userId) {
+          setTypingStatus(prev => ({
+            ...prev,
+            [userId]: isTyping
+          }));
+        }
+      });
+
+      socket.on('messages-read', ({ conversationId, userId }) => {
+        if (selectedUser && selectedUser.id === userId) {
+          setMessages(prev => prev.map(msg => 
+            msg.senderId === user.id ? { ...msg, read: true } : msg
+          ));
+        }
+      });
     }
 
     return () => {
       socket.off('new-message');
+      socket.off('message-sent');
       socket.off('user-status');
+      socket.off('typing-indicator');
+      socket.off('messages-read');
     };
   }, [user, selectedUser]);
 
@@ -108,6 +152,12 @@ function App() {
       
       const messagesRes = await API.get(`/api/messages/${convRes.data.id}`);
       setMessages(messagesRes.data);
+      
+      // Отмечаем сообщения как прочитанные
+      socket.emit('mark-read', {
+        conversationId: convRes.data.id,
+        userId: user.id
+      });
     } catch (err) {
       console.error('Ошибка загрузки сообщений:', err);
     }
@@ -127,7 +177,6 @@ function App() {
       if (selectedImage) {
         const formData = new FormData();
         formData.append('image', selectedImage);
-        // ========== ИСПРАВЛЕНО ==========
         const uploadRes = await axios.post(`${API_URL}/api/upload-image`, formData, {
           headers: {
             'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -159,6 +208,30 @@ function App() {
       setSelectedImage(file);
       setImagePreview(URL.createObjectURL(file));
     }
+  };
+
+  const handleTyping = () => {
+    if (!selectedUser) return;
+    
+    socket.emit('typing', {
+      userId: user.id,
+      receiverId: selectedUser.id,
+      conversationId: `${user.id}-${selectedUser.id}`,
+      isTyping: true
+    });
+
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+
+    typingTimeoutRef.current = setTimeout(() => {
+      socket.emit('typing', {
+        userId: user.id,
+        receiverId: selectedUser.id,
+        conversationId: `${user.id}-${selectedUser.id}`,
+        isTyping: false
+      });
+    }, 1000);
   };
 
   const handleRegister = async (e) => {
@@ -232,10 +305,18 @@ function App() {
         />
       );
     }
-    return <div className="message-text">{msg.text}</div>;
+    return (
+      <>
+        <div className="message-text">{msg.text}</div>
+        {msg.senderId === user.id && (
+          <div className="message-status">
+            {msg.read ? '✓✓' : '✓'}
+          </div>
+        )}
+      </>
+    );
   };
 
-  // ========== ИСПРАВЛЕНО: пути к аватаркам ==========
   const getAvatarUrl = (avatarPath) => {
     if (!avatarPath) return null;
     if (avatarPath.startsWith('http')) return avatarPath;
@@ -363,6 +444,9 @@ function App() {
                     {selectedUser.online && <span className="online-dot"> ● онлайн</span>}
                   </div>
                 </div>
+                {typingStatus[selectedUser.id] && (
+                  <div className="typing-indicator">печатает...</div>
+                )}
               </div>
 
               <div className="messages-container">
@@ -376,6 +460,7 @@ function App() {
                     </div>
                   </div>
                 ))}
+                <div ref={messagesEndRef} />
               </div>
 
               {imagePreview && (
@@ -396,6 +481,7 @@ function App() {
                   type="text"
                   value={newMessage}
                   onChange={(e) => setNewMessage(e.target.value)}
+                  onKeyDown={handleTyping}
                   onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
                   placeholder="Напишите сообщение..."
                   className="message-input"
