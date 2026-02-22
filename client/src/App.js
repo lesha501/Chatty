@@ -503,7 +503,13 @@ function App() {
       </div>
 
       {showSettings && (
-        <Settings user={user} onClose={() => setShowSettings(false)} onUpdate={handleUpdateUser} applyTheme={applyTheme} />
+        <Settings 
+          user={user} 
+          onClose={() => setShowSettings(false)} 
+          onUpdate={handleUpdateUser} 
+          applyTheme={applyTheme}
+          onLogout={handleLogout}
+        />
       )}
     </>
   );

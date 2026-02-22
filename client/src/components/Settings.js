@@ -3,7 +3,7 @@ import axios from 'axios';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
-function Settings({ user, onClose, onUpdate, applyTheme }) {
+function Settings({ user, onClose, onUpdate, applyTheme, onLogout }) {
   const [activeTab, setActiveTab] = useState('profile');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -128,6 +128,13 @@ function Settings({ user, onClose, onUpdate, applyTheme }) {
     }
   };
 
+  const handleLogout = () => {
+    if (onLogout) {
+      onLogout();
+      onClose();
+    }
+  };
+
   return (
     <div className="settings-modal">
       <div className="settings-content">
@@ -147,7 +154,7 @@ function Settings({ user, onClose, onUpdate, applyTheme }) {
             onClick={() => setActiveTab('settings')}
             className={`settings-tab ${activeTab === 'settings' ? 'active' : ''}`}
           >
-            ⚙️ Настройки мессенджера
+            ⚙️ Настройки
           </button>
         </div>
 
@@ -277,6 +284,37 @@ function Settings({ user, onClose, onUpdate, applyTheme }) {
                   />
                   <span>Звук сообщений</span>
                 </label>
+              </div>
+
+              {/* КНОПКА ВЫХОДА */}
+              <div className="settings-section" style={{ borderBottom: 'none' }}>
+                <h3 style={{ color: '#ff6b6b' }}>Опасная зона</h3>
+                <button 
+                  onClick={handleLogout}
+                  className="logout-button"
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    background: 'transparent',
+                    border: '1px solid #ff6b6b',
+                    borderRadius: '10px',
+                    color: '#ff6b6b',
+                    fontSize: '16px',
+                    cursor: 'pointer',
+                    transition: 'all 0.3s',
+                    marginTop: '10px'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.target.style.background = '#ff6b6b';
+                    e.target.style.color = 'white';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.background = 'transparent';
+                    e.target.style.color = '#ff6b6b';
+                  }}
+                >
+                  🚪 Выйти из аккаунта
+                </button>
               </div>
             </div>
           )}
