@@ -4,8 +4,10 @@ import io from 'socket.io-client';
 import Settings from './components/Settings';
 import './index.css';
 
-const API = axios.create({ baseURL: 'http://localhost:5000' });
-const socket = io('http://localhost:5000');
+// ========== ИСПРАВЛЕНО: используем переменную окружения ==========
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+const API = axios.create({ baseURL: API_URL });
+const socket = io(API_URL);
 
 function App() {
   const [isLogin, setIsLogin] = useState(true);
@@ -125,7 +127,8 @@ function App() {
       if (selectedImage) {
         const formData = new FormData();
         formData.append('image', selectedImage);
-        const uploadRes = await axios.post('http://localhost:5000/api/upload-image', formData, {
+        // ========== ИСПРАВЛЕНО ==========
+        const uploadRes = await axios.post(`${API_URL}/api/upload-image`, formData, {
           headers: {
             'Authorization': `Bearer ${localStorage.getItem('token')}`,
             'Content-Type': 'multipart/form-data'
@@ -232,6 +235,13 @@ function App() {
     return <div className="message-text">{msg.text}</div>;
   };
 
+  // ========== ИСПРАВЛЕНО: пути к аватаркам ==========
+  const getAvatarUrl = (avatarPath) => {
+    if (!avatarPath) return null;
+    if (avatarPath.startsWith('http')) return avatarPath;
+    return `${API_URL}${avatarPath}`;
+  };
+
   if (!user) {
     return (
       <div className="auth-container">
@@ -298,7 +308,7 @@ function App() {
           <div className="profile-header">
             <div className="profile-info">
               <div className="avatar">
-                {user.avatar ? <img src={`http://localhost:5000${user.avatar}`} alt={user.displayName} /> : user.displayName[0].toUpperCase()}
+                {user.avatar ? <img src={getAvatarUrl(user.avatar)} alt={user.displayName} /> : user.displayName[0].toUpperCase()}
               </div>
               <div className="profile-details">
                 <div className="profile-name">{user.displayName}</div>
@@ -318,7 +328,7 @@ function App() {
             {filteredUsers.map(otherUser => (
               <div key={otherUser.id} onClick={() => { setSelectedUser(otherUser); fetchMessages(otherUser.id); }} className={`user-item ${selectedUser?.id === otherUser.id ? 'selected' : ''}`}>
                 <div className="user-avatar">
-                  {otherUser.avatar ? <img src={`http://localhost:5000${otherUser.avatar}`} alt={otherUser.displayName} /> : otherUser.displayName[0].toUpperCase()}
+                  {otherUser.avatar ? <img src={getAvatarUrl(otherUser.avatar)} alt={otherUser.displayName} /> : otherUser.displayName[0].toUpperCase()}
                 </div>
                 <div className="user-info">
                   <div className="user-name">{otherUser.displayName}</div>
@@ -344,7 +354,7 @@ function App() {
             <>
               <div className="chat-header">
                 <div className="chat-user-avatar">
-                  {selectedUser.avatar ? <img src={`http://localhost:5000${selectedUser.avatar}`} alt={selectedUser.displayName} /> : selectedUser.displayName[0].toUpperCase()}
+                  {selectedUser.avatar ? <img src={getAvatarUrl(selectedUser.avatar)} alt={selectedUser.displayName} /> : selectedUser.displayName[0].toUpperCase()}
                 </div>
                 <div className="chat-user-info">
                   <div className="chat-user-name">{selectedUser.displayName}</div>
