@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+
 function Settings({ user, onClose, onUpdate, applyTheme }) {
   const [activeTab, setActiveTab] = useState('profile');
   const [loading, setLoading] = useState(false);
@@ -22,7 +24,8 @@ function Settings({ user, onClose, onUpdate, applyTheme }) {
   });
 
   const [avatarFile, setAvatarFile] = useState(null);
-  const [avatarPreview, setAvatarPreview] = useState(user.avatar ? `http://localhost:5000${user.avatar}` : null);
+  const [avatarPreview, setAvatarPreview] = useState(user.avatar ? 
+    (user.avatar.startsWith('http') ? user.avatar : `${API_URL}${user.avatar}`) : null);
 
   const handleAvatarChange = (e) => {
     const file = e.target.files[0];
@@ -44,7 +47,7 @@ function Settings({ user, onClose, onUpdate, applyTheme }) {
         throw new Error('Токен не найден');
       }
       
-      const res = await axios.post('http://localhost:5000/api/upload-avatar', formData, {
+      const res = await axios.post(`${API_URL}/api/upload-avatar`, formData, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'multipart/form-data'
@@ -73,7 +76,7 @@ function Settings({ user, onClose, onUpdate, applyTheme }) {
         avatarUrl = await uploadAvatar();
       }
       
-      const res = await axios.put('http://localhost:5000/api/profile', profile, {
+      const res = await axios.put(`${API_URL}/api/profile`, profile, {
         headers: { 
           'Authorization': `Bearer ${token}` 
         }
@@ -91,312 +94,146 @@ function Settings({ user, onClose, onUpdate, applyTheme }) {
     }
   };
 
- const handleSaveSettings = async () => {
-  setLoading(true);
-  setError('');
-  setSuccess('');
-  
-  try {
-    const token = localStorage.getItem('token');
-    if (!token) {
-      throw new Error('Токен не найден');
-    }
+  const handleSaveSettings = async () => {
+    setLoading(true);
+    setError('');
+    setSuccess('');
     
-    const res = await axios.put('http://localhost:5000/api/settings', settings, {
-      headers: { 
-        'Authorization': `Bearer ${token}` 
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        throw new Error('Токен не найден');
       }
-    });
-    
-    const updatedUser = { ...user, ...res.data };
-    localStorage.setItem('user', JSON.stringify(updatedUser));
-    onUpdate(updatedUser);
-    setSuccess('Настройки сохранены! ⚙️');
-    
-    // ПРИМЕНЯЕМ ТЕМУ СРАЗУ
-    applyTheme(settings.theme);
-    
-  } catch (err) {
-    console.error('Ошибка:', err);
-    setError(err.response?.data?.error || err.message || 'Ошибка сохранения');
-  } finally {
-    setLoading(false);
-  }
-};
+      
+      const res = await axios.put(`${API_URL}/api/settings`, settings, {
+        headers: { 
+          'Authorization': `Bearer ${token}` 
+        }
+      });
+      
+      const updatedUser = { ...user, ...res.data };
+      localStorage.setItem('user', JSON.stringify(updatedUser));
+      onUpdate(updatedUser);
+      
+      if (applyTheme) {
+        applyTheme(settings.theme);
+      }
+      
+      setSuccess('Настройки сохранены! ⚙️');
+    } catch (err) {
+      console.error('Ошибка:', err);
+      setError(err.response?.data?.error || err.message || 'Ошибка сохранения');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
-    <div style={{
-      position: 'fixed',
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      background: 'rgba(0, 0, 0, 0.8)',
-      backdropFilter: 'blur(10px)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      zIndex: 1000
-    }}>
-      <div style={{
-        width: '90%',
-        maxWidth: '600px',
-        background: '#2a2b2e',
-        borderRadius: '20px',
-        overflow: 'hidden',
-        boxShadow: '0 20px 60px rgba(0,0,0,0.5)'
-      }}>
-        {/* Заголовок */}
-        <div style={{
-          padding: '20px',
-          background: '#1e1f22',
-          borderBottom: '1px solid #3a3b3e',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center'
-        }}>
-          <h2 style={{ margin: 0, color: '#e4e6eb' }}>Настройки</h2>
-          <button
-            onClick={onClose}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: '#9ca3af',
-              fontSize: '24px',
-              cursor: 'pointer'
-            }}
-          >
-            ✕
-          </button>
+    <div className="settings-modal">
+      <div className="settings-content">
+        <div className="settings-header">
+          <h2>Настройки</h2>
+          <button onClick={onClose} className="close-button">✕</button>
         </div>
 
-        {/* Табы */}
-        <div style={{
-          display: 'flex',
-          borderBottom: '1px solid #3a3b3e',
-          padding: '0 20px'
-        }}>
+        <div className="settings-tabs">
           <button
             onClick={() => setActiveTab('profile')}
-            style={{
-              padding: '15px 20px',
-              background: 'none',
-              border: 'none',
-              color: activeTab === 'profile' ? '#667eea' : '#9ca3af',
-              borderBottom: activeTab === 'profile' ? '2px solid #667eea' : '2px solid transparent',
-              cursor: 'pointer',
-              fontSize: '16px',
-              fontWeight: activeTab === 'profile' ? '600' : '400'
-            }}
+            className={`settings-tab ${activeTab === 'profile' ? 'active' : ''}`}
           >
             👤 Профиль
           </button>
           <button
             onClick={() => setActiveTab('settings')}
-            style={{
-              padding: '15px 20px',
-              background: 'none',
-              border: 'none',
-              color: activeTab === 'settings' ? '#667eea' : '#9ca3af',
-              borderBottom: activeTab === 'settings' ? '2px solid #667eea' : '2px solid transparent',
-              cursor: 'pointer',
-              fontSize: '16px',
-              fontWeight: activeTab === 'settings' ? '600' : '400'
-            }}
+            className={`settings-tab ${activeTab === 'settings' ? 'active' : ''}`}
           >
-            ⚙️ Настройки
+            ⚙️ Настройки мессенджера
           </button>
         </div>
 
-        {/* Контент */}
-        <div style={{ padding: '20px', maxHeight: '60vh', overflow: 'auto' }}>
+        <div className="settings-body">
           {error && (
-            <div style={{
-              background: '#442222',
-              color: '#ff6b6b',
-              padding: '12px',
-              borderRadius: '10px',
-              marginBottom: '20px',
-              fontSize: '14px'
-            }}>
+            <div className="error-message">
               ❌ {error}
             </div>
           )}
 
           {success && (
-            <div style={{
-              background: '#224422',
-              color: '#6bff6b',
-              padding: '12px',
-              borderRadius: '10px',
-              marginBottom: '20px'
-            }}>
+            <div className="success-message">
               ✓ {success}
             </div>
           )}
 
           {activeTab === 'profile' && (
             <div>
-              {/* Аватарка */}
-              <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                marginBottom: '30px'
-              }}>
-                <div style={{
-                  width: '120px',
-                  height: '120px',
-                  borderRadius: '50%',
-                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                  marginBottom: '15px',
-                  overflow: 'hidden',
-                  cursor: 'pointer',
-                  position: 'relative'
-                }}>
+              <div className="avatar-section">
+                <div 
+                  className="avatar-upload" 
+                  onClick={() => document.getElementById('avatar-input').click()}
+                >
                   {avatarPreview ? (
-                    <img 
-                      src={avatarPreview} 
-                      alt="avatar" 
-                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                    />
+                    <img src={avatarPreview} alt="avatar" />
                   ) : (
-                    <div style={{
-                      width: '100%',
-                      height: '100%',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: '40px',
-                      color: 'white'
-                    }}>
+                    <div className="avatar-placeholder">
                       {user.displayName[0].toUpperCase()}
                     </div>
                   )}
                   <input
+                    id="avatar-input"
                     type="file"
                     accept="image/*"
                     onChange={handleAvatarChange}
-                    style={{
-                      position: 'absolute',
-                      top: 0,
-                      left: 0,
-                      width: '100%',
-                      height: '100%',
-                      opacity: 0,
-                      cursor: 'pointer'
-                    }}
+                    style={{ display: 'none' }}
                   />
                 </div>
-                <p style={{ color: '#9ca3af', fontSize: '14px', margin: 0 }}>
-                  Нажмите на аватарку, чтобы изменить
-                </p>
+                <p>Нажмите на аватарку, чтобы изменить</p>
               </div>
 
-              {/* Поля профиля */}
-              <div style={{ marginBottom: '20px' }}>
-                <label style={{ display: 'block', marginBottom: '8px', color: '#9ca3af', fontSize: '14px' }}>
-                  Имя
-                </label>
+              <div className="form-group">
+                <label>Имя</label>
                 <input
                   type="text"
                   value={profile.displayName}
                   onChange={(e) => setProfile({...profile, displayName: e.target.value})}
-                  style={{
-                    width: '100%',
-                    padding: '12px',
-                    background: '#1e1f22',
-                    border: '1px solid #3a3b3e',
-                    borderRadius: '10px',
-                    color: '#e4e6eb',
-                    fontSize: '16px',
-                    boxSizing: 'border-box'
-                  }}
                 />
               </div>
 
-              <div style={{ marginBottom: '20px' }}>
-                <label style={{ display: 'block', marginBottom: '8px', color: '#9ca3af', fontSize: '14px' }}>
-                  Username
-                </label>
+              <div className="form-group">
+                <label>Username</label>
                 <input
                   type="text"
                   value={profile.username}
                   onChange={(e) => setProfile({...profile, username: e.target.value})}
-                  style={{
-                    width: '100%',
-                    padding: '12px',
-                    background: '#1e1f22',
-                    border: '1px solid #3a3b3e',
-                    borderRadius: '10px',
-                    color: '#e4e6eb',
-                    fontSize: '16px',
-                    boxSizing: 'border-box'
-                  }}
                 />
+                <small>Только латиница и цифры</small>
               </div>
 
-              <div style={{ marginBottom: '20px' }}>
-                <label style={{ display: 'block', marginBottom: '8px', color: '#9ca3af', fontSize: '14px' }}>
-                  Email
-                </label>
+              <div className="form-group">
+                <label>Email</label>
                 <input
                   type="email"
                   value={profile.email}
                   onChange={(e) => setProfile({...profile, email: e.target.value})}
-                  style={{
-                    width: '100%',
-                    padding: '12px',
-                    background: '#1e1f22',
-                    border: '1px solid #3a3b3e',
-                    borderRadius: '10px',
-                    color: '#e4e6eb',
-                    fontSize: '16px',
-                    boxSizing: 'border-box'
-                  }}
                 />
               </div>
 
-              <div style={{ marginBottom: '20px' }}>
-                <label style={{ display: 'block', marginBottom: '8px', color: '#9ca3af', fontSize: '14px' }}>
-                  Телефон (необязательно)
-                </label>
+              <div className="form-group">
+                <label>Телефон</label>
                 <input
                   type="tel"
                   value={profile.phone || ''}
                   onChange={(e) => setProfile({...profile, phone: e.target.value})}
-                  style={{
-                    width: '100%',
-                    padding: '12px',
-                    background: '#1e1f22',
-                    border: '1px solid #3a3b3e',
-                    borderRadius: '10px',
-                    color: '#e4e6eb',
-                    fontSize: '16px',
-                    boxSizing: 'border-box'
-                  }}
                 />
+                <small>Необязательно</small>
               </div>
 
-              <div style={{ marginBottom: '20px' }}>
-                <label style={{ display: 'block', marginBottom: '8px', color: '#9ca3af', fontSize: '14px' }}>
-                  О себе
-                </label>
+              <div className="form-group">
+                <label>О себе</label>
                 <textarea
                   value={profile.bio || ''}
                   onChange={(e) => setProfile({...profile, bio: e.target.value})}
-                  rows="3"
-                  style={{
-                    width: '100%',
-                    padding: '12px',
-                    background: '#1e1f22',
-                    border: '1px solid #3a3b3e',
-                    borderRadius: '10px',
-                    color: '#e4e6eb',
-                    fontSize: '16px',
-                    boxSizing: 'border-box',
-                    resize: 'vertical'
-                  }}
+                  rows="4"
+                  placeholder="Расскажите немного о себе..."
                 />
               </div>
             </div>
@@ -404,25 +241,14 @@ function Settings({ user, onClose, onUpdate, applyTheme }) {
 
           {activeTab === 'settings' && (
             <div>
-              <div style={{ marginBottom: '25px' }}>
-                <h3 style={{ color: '#e4e6eb', margin: '0 0 15px 0', fontSize: '18px' }}>Внешний вид</h3>
+              <div className="settings-section">
+                <h3>Внешний вид</h3>
                 
-                <div style={{ marginBottom: '15px' }}>
-                  <label style={{ display: 'block', marginBottom: '8px', color: '#9ca3af', fontSize: '14px' }}>
-                    Тема
-                  </label>
+                <div className="form-group">
+                  <label>Тема оформления</label>
                   <select
                     value={settings.theme}
                     onChange={(e) => setSettings({...settings, theme: e.target.value})}
-                    style={{
-                      width: '100%',
-                      padding: '12px',
-                      background: '#1e1f22',
-                      border: '1px solid #3a3b3e',
-                      borderRadius: '10px',
-                      color: '#e4e6eb',
-                      fontSize: '16px'
-                    }}
                   >
                     <option value="dark">🌙 Тёмная</option>
                     <option value="light">☀️ Светлая</option>
@@ -431,92 +257,39 @@ function Settings({ user, onClose, onUpdate, applyTheme }) {
                 </div>
               </div>
 
-              <div style={{ marginBottom: '25px' }}>
-                <h3 style={{ color: '#e4e6eb', margin: '0 0 15px 0', fontSize: '18px' }}>Уведомления</h3>
+              <div className="settings-section">
+                <h3>Уведомления</h3>
                 
-                <div style={{ marginBottom: '15px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={settings.notifications}
-                      onChange={(e) => setSettings({...settings, notifications: e.target.checked})}
-                      style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-                    />
-                    <span style={{ color: '#e4e6eb' }}>Включить уведомления</span>
-                  </label>
-                </div>
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={settings.notifications}
+                    onChange={(e) => setSettings({...settings, notifications: e.target.checked})}
+                  />
+                  <span>Включить уведомления</span>
+                </label>
 
-                <div style={{ marginBottom: '15px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={settings.soundEnabled}
-                      onChange={(e) => setSettings({...settings, soundEnabled: e.target.checked})}
-                      style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-                    />
-                    <span style={{ color: '#e4e6eb' }}>Звук сообщений</span>
-                  </label>
-                </div>
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={settings.soundEnabled}
+                    onChange={(e) => setSettings({...settings, soundEnabled: e.target.checked})}
+                  />
+                  <span>Звук сообщений</span>
+                </label>
               </div>
             </div>
           )}
         </div>
 
-        {/* Кнопки действий */}
-        <div style={{
-          padding: '20px',
-          borderTop: '1px solid #3a3b3e',
-          display: 'flex',
-          justifyContent: 'flex-end',
-          gap: '10px'
-        }}>
-          <button
-            onClick={onClose}
-            style={{
-              padding: '12px 24px',
-              background: 'transparent',
-              border: '1px solid #3a3b3e',
-              borderRadius: '10px',
-              color: '#e4e6eb',
-              cursor: 'pointer',
-              fontSize: '16px',
-              transition: 'all 0.3s'
-            }}
-            onMouseEnter={(e) => {
-              e.target.style.background = '#3a3b3e';
-            }}
-            onMouseLeave={(e) => {
-              e.target.style.background = 'transparent';
-            }}
-          >
+        <div className="settings-footer">
+          <button onClick={onClose} className="cancel-button">
             Отмена
           </button>
           <button
             onClick={activeTab === 'profile' ? handleSaveProfile : handleSaveSettings}
             disabled={loading}
-            style={{
-              padding: '12px 24px',
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-              border: 'none',
-              borderRadius: '10px',
-              color: 'white',
-              cursor: loading ? 'not-allowed' : 'pointer',
-              fontSize: '16px',
-              opacity: loading ? 0.7 : 1,
-              transition: 'all 0.3s'
-            }}
-            onMouseEnter={(e) => {
-              if (!loading) {
-                e.target.style.transform = 'translateY(-2px)';
-                e.target.style.boxShadow = '0 10px 20px rgba(102, 126, 234, 0.4)';
-              }
-            }}
-            onMouseLeave={(e) => {
-              if (!loading) {
-                e.target.style.transform = 'translateY(0)';
-                e.target.style.boxShadow = 'none';
-              }
-            }}
+            className="save-button"
           >
             {loading ? 'Сохранение...' : 'Сохранить'}
           </button>
