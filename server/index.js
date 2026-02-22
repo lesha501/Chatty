@@ -12,7 +12,7 @@ const fs = require('fs');
 const app = express();
 const server = http.createServer(app);
 
-// ========== ПРАВИЛЬНЫЙ CORS С ПОДДЕРЖКОЙ ФРОНТЕНДА ==========
+// ========== ПРАВИЛЬНЫЙ CORS С ПОДДЕРЖКОЙ ФАЙЛОВ ==========
 const allowedOrigins = [
   'http://localhost:3000',
   'https://chatty-wine.vercel.app'
@@ -21,18 +21,22 @@ const allowedOrigins = [
 const io = socketIO(server, { 
   cors: { 
     origin: allowedOrigins,
-    methods: ["GET", "POST", "PUT", "DELETE"],
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     credentials: true,
-    allowedHeaders: ["Content-Type", "Authorization"]
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"]
   } 
 });
 
+// ВАЖНО: добавляем поддержку preflight запросов (OPTIONS)
 app.use(cors({
   origin: allowedOrigins,
   credentials: true,
-  methods: ["GET", "POST", "PUT", "DELETE"],
-  allowedHeaders: ["Content-Type", "Authorization"]
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"]
 }));
+
+// Добавляем обработку OPTIONS для всех маршрутов
+app.options('*', cors());
 
 app.use(express.json());
 app.use('/uploads', express.static('uploads'));
@@ -239,30 +243,42 @@ app.post('/api/login', (req, res) => {
   }
 });
 
-// ЗАГРУЗКА АВАТАРКИ
+// ЗАГРУЗКА АВАТАРКИ (исправлено для Render)
 app.post('/api/upload-avatar', upload.single('avatar'), (req, res) => {
   try {
+    console.log('📸 Запрос на загрузку аватарки');
     const token = req.headers.authorization?.split(' ')[1];
+    if (!token) {
+      return res.status(401).json({ error: 'Нет токена' });
+    }
+    
     const decoded = jwt.verify(token, 'secret123');
     
     if (!req.file) {
+      console.log('❌ Файл не загружен');
       return res.status(400).json({ error: 'Файл не загружен' });
     }
     
-    const avatarUrl = `/uploads/${req.file.filename}`;
+    console.log('✅ Файл получен:', req.file.filename);
+    
+    // ВАЖНО: для Render используем полный URL
+    const baseUrl = process.env.RENDER_EXTERNAL_URL || `http://localhost:5000`;
+    const avatarUrl = `${baseUrl}/uploads/${req.file.filename}`;
     
     db.prepare('UPDATE users SET avatar = ? WHERE id = ?').run(avatarUrl, decoded.id);
+    console.log('✅ Аватарка сохранена в БД:', avatarUrl);
     
     res.json({ avatar: avatarUrl });
   } catch (error) {
-    console.error(error);
+    console.error('❌ Ошибка загрузки аватарки:', error);
     res.status(400).json({ error: error.message });
   }
 });
 
-// ЗАГРУЗКА ИЗОБРАЖЕНИЙ ДЛЯ ЧАТА
+// ЗАГРУЗКА ИЗОБРАЖЕНИЙ ДЛЯ ЧАТА (исправлено для Render)
 app.post('/api/upload-image', upload.single('image'), (req, res) => {
   try {
+    console.log('📸 Запрос на загрузку фото в чат');
     const token = req.headers.authorization?.split(' ')[1];
     const decoded = jwt.verify(token, 'secret123');
     
@@ -270,7 +286,8 @@ app.post('/api/upload-image', upload.single('image'), (req, res) => {
       return res.status(400).json({ error: 'Файл не загружен' });
     }
     
-    const imageUrl = `http://localhost:5000/uploads/${req.file.filename}`;
+    const baseUrl = process.env.RENDER_EXTERNAL_URL || `http://localhost:5000`;
+    const imageUrl = `${baseUrl}/uploads/${req.file.filename}`;
     console.log('✅ Фото сохранено:', imageUrl);
     res.json({ imageUrl });
   } catch (error) {
@@ -554,6 +571,51 @@ io.on('connection', (socket) => {
     }
   });
   
+  // Индикатор печатает
+  socket.on('typing', (data) => {
+    const { userId, receiverId, conversationId, isTyping } = data;
+    
+    for (let [sockId, onlineUserId] of onlineUsers.entries()) {
+      if (onlineUserId == receiverId) {
+        io.to(sockId).emit('typing-indicator', {
+          userId,
+          conversationId,
+          isTyping
+        });
+        break;
+      }
+    }
+  });
+  
+  // Отметка о прочтении
+  socket.on('mark-read', ({ conversationId, userId }) => {
+    try {
+      db.prepare(`
+        UPDATE messages SET read = 1
+        WHERE conversationId = ? AND senderId != ? AND read = 0
+      `).run(conversationId, userId);
+      
+      const participants = db.prepare(`
+        SELECT userId FROM conversation_participants
+        WHERE conversationId = ? AND userId != ?
+      `).all(conversationId, userId);
+      
+      participants.forEach(p => {
+        for (let [sockId, onlineUserId] of onlineUsers.entries()) {
+          if (onlineUserId == p.userId) {
+            io.to(sockId).emit('messages-read', {
+              conversationId,
+              userId
+            });
+            break;
+          }
+        }
+      });
+    } catch (error) {
+      console.error('Ошибка отметки прочитано:', error);
+    }
+  });
+  
   // Отключение
   socket.on('disconnect', () => {
     const userId = onlineUsers.get(socket.id);
@@ -570,9 +632,9 @@ io.on('connection', (socket) => {
   });
 });
 
-// ========== ИСПРАВЛЕННЫЙ ЗАПУСК ДЛЯ RENDER ==========
-const PORT = process.env.PORT || 5000;
+// ========== ЗАПУСК ДЛЯ RENDER ==========
+const PORT = process.env.PORT || 10000;
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Сервер запущен на порту ${PORT}`);
-  console.log(`📁 База данных: ${process.cwd()}\\chatty.db`);
+  console.log(`📁 База данных: ${process.cwd()}/chatty.db`);
 });
