@@ -12,30 +12,31 @@ const fs = require('fs');
 const app = express();
 const server = http.createServer(app);
 
-// ========== ПРАВИЛЬНЫЙ CORS ДЛЯ ПРОДАКШЕНА ==========
-const allowedOrigins = [
-  'http://localhost:3000',
-  'https://chatty-wine.vercel.app'
-];
+// ========== БОЛЕЕ НАДЕЖНЫЙ CORS ==========
+const corsOptions = {
+  origin: ['http://localhost:3000', 'https://chatty-wine.vercel.app'],
+  credentials: true,
+  optionsSuccessStatus: 200,
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+};
 
-const io = socketIO(server, { 
-  cors: { 
-    origin: allowedOrigins,
-    methods: ["GET", "POST", "PUT", "DELETE"],
+// Для Express
+app.use(cors(corsOptions));
+
+// Для Socket.IO (более прямолинейно)
+const io = socketIO(server, {
+  cors: {
+    origin: ['http://localhost:3000', 'https://chatty-wine.vercel.app'],
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     credentials: true,
-    allowedHeaders: ["Content-Type", "Authorization"]
-  } 
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+    transports: ['polling', 'websocket'] // разрешаем оба транспорта
+  }
 });
 
-app.use(cors({
-  origin: allowedOrigins,
-  credentials: true,
-  methods: ["GET", "POST", "PUT", "DELETE"],
-  allowedHeaders: ["Content-Type", "Authorization"]
-}));
-
-app.use(express.json());
-app.use('/uploads', express.static('uploads'));
+// Явно обрабатываем предзапросы (preflight)
+app.options('*', cors(corsOptions));
 
 // Создаём папку для аватарок и фото
 if (!fs.existsSync('uploads')) {
