@@ -7,8 +7,10 @@ import CreateGroup from './components/CreateGroup';
 import GroupSettings from './components/GroupSettings';
 import './index.css';
 
-const API = axios.create({ baseURL: 'http://localhost:5000' });
-const socket = io('http://localhost:5000');
+// ========== ПРАВИЛЬНЫЕ ПЕРЕМЕННЫЕ ==========
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+const API = axios.create({ baseURL: API_URL });
+const socket = io(API_URL);
 
 function App() {
   const [isLogin, setIsLogin] = useState(true);
@@ -221,7 +223,7 @@ function App() {
       if (selectedImage) {
         const formData = new FormData();
         formData.append('image', selectedImage);
-        const uploadRes = await axios.post('http://localhost:5000/api/upload-image', formData, {
+        const uploadRes = await axios.post(`${API_URL}/api/upload-image`, formData, {
           headers: {
             'Authorization': `Bearer ${localStorage.getItem('token')}`,
             'Content-Type': 'multipart/form-data'
@@ -340,7 +342,7 @@ function App() {
   const getAvatarUrl = (avatarPath) => {
     if (!avatarPath) return null;
     if (avatarPath.startsWith('http')) return avatarPath;
-    return `http://localhost:5000${avatarPath}`;
+    return `${API_URL}${avatarPath}`;
   };
 
   const getLastMessageText = (conv) => {
