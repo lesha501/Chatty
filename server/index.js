@@ -12,10 +12,15 @@ const fs = require('fs');
 const app = express();
 const server = http.createServer(app);
 
-// ========== ПРАВИЛЬНЫЙ CORS ==========
+// ========== ПРАВИЛЬНЫЙ CORS ДЛЯ ПРОДАКШЕНА ==========
+const allowedOrigins = [
+  'http://localhost:3000',
+  'https://chatty-wine.vercel.app'
+];
+
 const io = socketIO(server, { 
   cors: { 
-    origin: "http://localhost:3000",
+    origin: allowedOrigins,
     methods: ["GET", "POST", "PUT", "DELETE"],
     credentials: true,
     allowedHeaders: ["Content-Type", "Authorization"]
@@ -23,7 +28,7 @@ const io = socketIO(server, {
 });
 
 app.use(cors({
-  origin: "http://localhost:3000",
+  origin: allowedOrigins,
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE"],
   allowedHeaders: ["Content-Type", "Authorization"]
@@ -723,7 +728,7 @@ app.get('/api/messages/:conversationId', (req, res) => {
   }
 });
 
-// ПОЛУЧИТЬ ВСЕ ЧАТЫ ПОЛЬЗОВАТЕЛЯ (ИСПРАВЛЕНО)
+// ПОЛУЧИТЬ ВСЕ ЧАТЫ ПОЛЬЗОВАТЕЛЯ
 app.get('/api/conversations/:userId', (req, res) => {
   try {
     const conversations = db.prepare(`
@@ -788,7 +793,7 @@ app.get('/api/conversations/:userId', (req, res) => {
   }
 });
 
-// ========== РОУТ ДЛЯ УДАЛЕНИЯ ЧАТА ==========
+// УДАЛИТЬ ЧАТ
 app.delete('/api/conversations/:conversationId', (req, res) => {
   try {
     const token = req.headers.authorization?.split(' ')[1];
@@ -951,8 +956,8 @@ io.on('connection', (socket) => {
   });
 });
 
-const PORT = 5000;
-server.listen(PORT, () => {
+const PORT = process.env.PORT || 5000;
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Сервер запущен на порту ${PORT}`);
   console.log(`📁 База данных: ${process.cwd()}\\chatty.db`);
 });
