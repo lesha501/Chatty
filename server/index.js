@@ -12,31 +12,22 @@ const fs = require('fs');
 const app = express();
 const server = http.createServer(app);
 
-// ========== ПРАВИЛЬНЫЙ CORS С ПОДДЕРЖКОЙ ФАЙЛОВ ==========
-const allowedOrigins = [
-  'http://localhost:3000',
-  'https://chatty-wine.vercel.app'
-];
-
+// ========== ПРАВИЛЬНЫЙ CORS ==========
 const io = socketIO(server, { 
   cors: { 
-    origin: allowedOrigins,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    origin: "http://localhost:3000",
+    methods: ["GET", "POST", "PUT", "DELETE"],
     credentials: true,
-    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"]
+    allowedHeaders: ["Content-Type", "Authorization"]
   } 
 });
 
-// ВАЖНО: добавляем поддержку preflight запросов (OPTIONS)
 app.use(cors({
-  origin: allowedOrigins,
+  origin: "http://localhost:3000",
   credentials: true,
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"]
+  methods: ["GET", "POST", "PUT", "DELETE"],
+  allowedHeaders: ["Content-Type", "Authorization"]
 }));
-
-// Добавляем обработку OPTIONS для всех маршрутов
-app.options('*', cors());
 
 app.use(express.json());
 app.use('/uploads', express.static('uploads'));
@@ -81,18 +72,18 @@ try {
   // Проверяем существование таблиц
   const tables = db.prepare(`
     SELECT name FROM sqlite_master 
-    WHERE type='table' AND name IN ('users', 'conversations', 'messages')
+    WHERE type='table' AND name IN ('users', 'conversations', 'messages', 'group_admins')
   `).all();
   
-  // Если таблиц нет или их меньше 3 - создаём структуру с нуля
-  if (tables.length < 3) {
+  // Если таблиц нет или их меньше 4 - создаём структуру с нуля
+  if (tables.length < 4) {
     console.log('🔄 Таблицы не найдены, создаём структуру базы...');
     createDatabaseStructure();
   } else {
     console.log('✅ Таблицы существуют, проверяем структуру...');
     // Проверяем наличие всех нужных колонок в таблице users
     try {
-      db.prepare('SELECT theme, notifications, soundEnabled FROM users LIMIT 1').get();
+      db.prepare('SELECT theme, notifications, soundEnabled, birthDate FROM users LIMIT 1').get();
       console.log('✅ Структура базы корректна');
     } catch (e) {
       console.log('🔄 Обновляем структуру базы...');
@@ -101,6 +92,7 @@ try {
         db.exec('ALTER TABLE users ADD COLUMN theme TEXT DEFAULT "dark"');
         db.exec('ALTER TABLE users ADD COLUMN notifications INTEGER DEFAULT 1');
         db.exec('ALTER TABLE users ADD COLUMN soundEnabled INTEGER DEFAULT 1');
+        db.exec('ALTER TABLE users ADD COLUMN birthDate TEXT');
         console.log('✅ Структура базы обновлена');
       } catch (alterError) {
         console.log('Колонки уже существуют или ошибка:', alterError.message);
@@ -116,7 +108,7 @@ try {
 }
 
 function createDatabaseStructure() {
-  // Создаём таблицы
+  // Создаём таблицы с поддержкой групп и каналов
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -127,6 +119,7 @@ function createDatabaseStructure() {
       phone TEXT,
       avatar TEXT DEFAULT '',
       bio TEXT DEFAULT '',
+      birthDate TEXT,
       theme TEXT DEFAULT 'dark',
       notifications INTEGER DEFAULT 1,
       soundEnabled INTEGER DEFAULT 1,
@@ -137,11 +130,26 @@ function createDatabaseStructure() {
 
     CREATE TABLE IF NOT EXISTS conversations (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT,
+      avatar TEXT DEFAULT '',
+      description TEXT,
+      type TEXT DEFAULT 'personal', -- 'personal', 'group', 'channel'
       createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+      updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      createdBy INTEGER,
+      FOREIGN KEY(createdBy) REFERENCES users(id)
     );
 
     CREATE TABLE IF NOT EXISTS conversation_participants (
+      conversationId INTEGER,
+      userId INTEGER,
+      joinedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(conversationId) REFERENCES conversations(id) ON DELETE CASCADE,
+      FOREIGN KEY(userId) REFERENCES users(id) ON DELETE CASCADE,
+      PRIMARY KEY (conversationId, userId)
+    );
+
+    CREATE TABLE IF NOT EXISTS group_admins (
       conversationId INTEGER,
       userId INTEGER,
       FOREIGN KEY(conversationId) REFERENCES conversations(id) ON DELETE CASCADE,
@@ -166,6 +174,8 @@ function createDatabaseStructure() {
     db.exec(`CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversationId)`);
     db.exec(`CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(createdAt)`);
     db.exec(`CREATE INDEX IF NOT EXISTS idx_conversations_participants ON conversation_participants(userId)`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_conversations_type ON conversations(type)`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_group_admins ON group_admins(conversationId, userId)`);
   } catch (e) {
     console.log('Индексы уже существуют');
   }
@@ -178,7 +188,7 @@ function createDatabaseStructure() {
 // РЕГИСТРАЦИЯ
 app.post('/api/register', (req, res) => {
   try {
-    const { email, password, displayName, username, phone } = req.body;
+    const { email, password, displayName, username, phone, birthDate } = req.body;
     
     const existing = db.prepare('SELECT * FROM users WHERE email = ? OR username = ?').get(email, username);
     if (existing) {
@@ -188,13 +198,13 @@ app.post('/api/register', (req, res) => {
     const hashedPassword = bcrypt.hashSync(password, 10);
     
     const stmt = db.prepare(`
-      INSERT INTO users (email, password, displayName, username, phone, theme)
-      VALUES (?, ?, ?, ?, ?, 'dark')
+      INSERT INTO users (email, password, displayName, username, phone, birthDate, theme)
+      VALUES (?, ?, ?, ?, ?, ?, 'dark')
     `);
     
-    const result = stmt.run(email, hashedPassword, displayName, username, phone || null);
+    const result = stmt.run(email, hashedPassword, displayName, username, phone || null, birthDate || null);
     
-    const user = db.prepare('SELECT id, email, displayName, username, phone, avatar, bio, theme, notifications, soundEnabled FROM users WHERE id = ?').get(result.lastInsertRowid);
+    const user = db.prepare('SELECT id, email, displayName, username, phone, avatar, bio, birthDate, theme, notifications, soundEnabled FROM users WHERE id = ?').get(result.lastInsertRowid);
     
     const token = jwt.sign({ id: user.id }, 'secret123');
     
@@ -232,6 +242,7 @@ app.post('/api/login', (req, res) => {
         phone: user.phone,
         avatar: user.avatar,
         bio: user.bio,
+        birthDate: user.birthDate,
         theme: user.theme,
         notifications: user.notifications,
         soundEnabled: user.soundEnabled
@@ -243,42 +254,30 @@ app.post('/api/login', (req, res) => {
   }
 });
 
-// ЗАГРУЗКА АВАТАРКИ (исправлено для Render)
+// ЗАГРУЗКА АВАТАРКИ ПОЛЬЗОВАТЕЛЯ
 app.post('/api/upload-avatar', upload.single('avatar'), (req, res) => {
   try {
-    console.log('📸 Запрос на загрузку аватарки');
     const token = req.headers.authorization?.split(' ')[1];
-    if (!token) {
-      return res.status(401).json({ error: 'Нет токена' });
-    }
-    
     const decoded = jwt.verify(token, 'secret123');
     
     if (!req.file) {
-      console.log('❌ Файл не загружен');
       return res.status(400).json({ error: 'Файл не загружен' });
     }
     
-    console.log('✅ Файл получен:', req.file.filename);
-    
-    // ВАЖНО: для Render используем полный URL
-    const baseUrl = process.env.RENDER_EXTERNAL_URL || `http://localhost:5000`;
-    const avatarUrl = `${baseUrl}/uploads/${req.file.filename}`;
+    const avatarUrl = `/uploads/${req.file.filename}`;
     
     db.prepare('UPDATE users SET avatar = ? WHERE id = ?').run(avatarUrl, decoded.id);
-    console.log('✅ Аватарка сохранена в БД:', avatarUrl);
     
     res.json({ avatar: avatarUrl });
   } catch (error) {
-    console.error('❌ Ошибка загрузки аватарки:', error);
+    console.error(error);
     res.status(400).json({ error: error.message });
   }
 });
 
-// ЗАГРУЗКА ИЗОБРАЖЕНИЙ ДЛЯ ЧАТА (исправлено для Render)
+// ЗАГРУЗКА ИЗОБРАЖЕНИЙ ДЛЯ ЧАТА
 app.post('/api/upload-image', upload.single('image'), (req, res) => {
   try {
-    console.log('📸 Запрос на загрузку фото в чат');
     const token = req.headers.authorization?.split(' ')[1];
     const decoded = jwt.verify(token, 'secret123');
     
@@ -286,12 +285,42 @@ app.post('/api/upload-image', upload.single('image'), (req, res) => {
       return res.status(400).json({ error: 'Файл не загружен' });
     }
     
-    const baseUrl = process.env.RENDER_EXTERNAL_URL || `http://localhost:5000`;
-    const imageUrl = `${baseUrl}/uploads/${req.file.filename}`;
+    const imageUrl = `http://localhost:5000/uploads/${req.file.filename}`;
     console.log('✅ Фото сохранено:', imageUrl);
     res.json({ imageUrl });
   } catch (error) {
     console.error('❌ Ошибка загрузки фото:', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// ЗАГРУЗКА АВАТАРКИ ГРУППЫ
+app.post('/api/groups/:groupId/avatar', upload.single('avatar'), (req, res) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    const decoded = jwt.verify(token, 'secret123');
+    const groupId = req.params.groupId;
+
+    // Проверяем, является ли пользователь админом группы
+    const isAdmin = db.prepare(`
+      SELECT * FROM group_admins WHERE conversationId = ? AND userId = ?
+    `).get(groupId, decoded.id);
+
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Только администраторы могут менять аватарку группы' });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ error: 'Файл не загружен' });
+    }
+
+    const avatarUrl = `/uploads/${req.file.filename}`;
+
+    db.prepare('UPDATE conversations SET avatar = ? WHERE id = ?').run(avatarUrl, groupId);
+
+    res.json({ avatar: avatarUrl });
+  } catch (error) {
+    console.error(error);
     res.status(400).json({ error: error.message });
   }
 });
@@ -302,7 +331,7 @@ app.put('/api/profile', (req, res) => {
     const token = req.headers.authorization?.split(' ')[1];
     const decoded = jwt.verify(token, 'secret123');
     
-    const { displayName, username, phone, bio, email } = req.body;
+    const { displayName, username, phone, bio, email, birthDate } = req.body;
     
     if (username) {
       const existing = db.prepare('SELECT id FROM users WHERE username = ? AND id != ?').get(username, decoded.id);
@@ -341,13 +370,17 @@ app.put('/api/profile', (req, res) => {
       updates.push('email = ?');
       values.push(email);
     }
+    if (birthDate !== undefined) {
+      updates.push('birthDate = ?');
+      values.push(birthDate);
+    }
     
     if (updates.length > 0) {
       values.push(decoded.id);
       db.prepare(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`).run(...values);
     }
     
-    const user = db.prepare('SELECT id, email, displayName, username, phone, avatar, bio, theme, notifications, soundEnabled FROM users WHERE id = ?').get(decoded.id);
+    const user = db.prepare('SELECT id, email, displayName, username, phone, avatar, bio, birthDate, theme, notifications, soundEnabled FROM users WHERE id = ?').get(decoded.id);
     
     res.json(user);
   } catch (error) {
@@ -367,7 +400,7 @@ app.put('/api/settings', (req, res) => {
     db.prepare('UPDATE users SET theme = ?, notifications = ?, soundEnabled = ? WHERE id = ?')
       .run(theme || 'dark', notifications ? 1 : 0, soundEnabled ? 1 : 0, decoded.id);
     
-    const user = db.prepare('SELECT id, email, displayName, username, phone, avatar, bio, theme, notifications, soundEnabled FROM users WHERE id = ?').get(decoded.id);
+    const user = db.prepare('SELECT id, email, displayName, username, phone, avatar, bio, birthDate, theme, notifications, soundEnabled FROM users WHERE id = ?').get(decoded.id);
     
     res.json(user);
   } catch (error) {
@@ -380,7 +413,7 @@ app.put('/api/settings', (req, res) => {
 app.get('/api/users/:userId', (req, res) => {
   try {
     const users = db.prepare(`
-      SELECT id, email, displayName, username, avatar, bio, online, lastSeen
+      SELECT id, email, displayName, username, avatar, bio, birthDate, online, lastSeen
       FROM users WHERE id != ?
     `).all(req.params.userId);
     
@@ -391,9 +424,252 @@ app.get('/api/users/:userId', (req, res) => {
   }
 });
 
+// ПОИСК ПОЛЬЗОВАТЕЛЕЙ
+app.get('/api/search', (req, res) => {
+  try {
+    const { query } = req.query;
+    const users = db.prepare(`
+      SELECT id, email, displayName, username, avatar, online, lastSeen
+      FROM users 
+      WHERE username LIKE ? OR displayName LIKE ?
+      LIMIT 20
+    `).all(`%${query}%`, `%${query}%`);
+    
+    res.json(users);
+  } catch (error) {
+    console.error('Ошибка поиска:', error);
+    res.status(500).json({ error: 'Ошибка поиска' });
+  }
+});
+
+// ========== РОУТЫ ДЛЯ ГРУПП ==========
+
+// СОЗДАТЬ ГРУППУ
+app.post('/api/groups', (req, res) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    const decoded = jwt.verify(token, 'secret123');
+    const { name, description, members } = req.body;
+
+    // Создаём группу
+    const result = db.prepare(`
+      INSERT INTO conversations (name, description, type, createdBy)
+      VALUES (?, ?, 'group', ?)
+    `).run(name, description || '', decoded.id);
+    
+    const conversationId = result.lastInsertRowid;
+
+    // Добавляем создателя как участника и админа
+    db.prepare('INSERT INTO conversation_participants (conversationId, userId) VALUES (?, ?)')
+      .run(conversationId, decoded.id);
+    db.prepare('INSERT INTO group_admins (conversationId, userId) VALUES (?, ?)')
+      .run(conversationId, decoded.id);
+
+    // Добавляем остальных участников
+    if (members && members.length > 0) {
+      const insertMember = db.prepare('INSERT INTO conversation_participants (conversationId, userId) VALUES (?, ?)');
+      members.forEach(memberId => {
+        if (memberId !== decoded.id) {
+          insertMember.run(conversationId, memberId);
+        }
+      });
+    }
+
+    res.json({ id: conversationId, name, description, type: 'group' });
+  } catch (error) {
+    console.error(error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// ПОЛУЧИТЬ УЧАСТНИКОВ ГРУППЫ
+app.get('/api/groups/:groupId/members', (req, res) => {
+  try {
+    const members = db.prepare(`
+      SELECT u.id, u.displayName, u.username, u.avatar, u.online,
+             CASE WHEN ga.userId IS NOT NULL THEN 1 ELSE 0 END as isAdmin
+      FROM conversation_participants cp
+      JOIN users u ON cp.userId = u.id
+      LEFT JOIN group_admins ga ON ga.conversationId = cp.conversationId AND ga.userId = cp.userId
+      WHERE cp.conversationId = ?
+    `).all(req.params.groupId);
+
+    res.json(members);
+  } catch (error) {
+    console.error(error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// ДОБАВИТЬ УЧАСТНИКА В ГРУППУ
+app.post('/api/groups/:groupId/members', (req, res) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    const decoded = jwt.verify(token, 'secret123');
+    const { userId } = req.body;
+    const groupId = req.params.groupId;
+
+    // Проверяем, является ли текущий пользователь админом
+    const isAdmin = db.prepare(`
+      SELECT * FROM group_admins WHERE conversationId = ? AND userId = ?
+    `).get(groupId, decoded.id);
+
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Только администраторы могут добавлять участников' });
+    }
+
+    db.prepare('INSERT INTO conversation_participants (conversationId, userId) VALUES (?, ?)')
+      .run(groupId, userId);
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error(error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// УДАЛИТЬ УЧАСТНИКА ИЗ ГРУППЫ
+app.delete('/api/groups/:groupId/members/:userId', (req, res) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    const decoded = jwt.verify(token, 'secret123');
+    const { groupId, userId } = req.params;
+
+    // Проверяем, является ли текущий пользователь админом
+    const isAdmin = db.prepare(`
+      SELECT * FROM group_admins WHERE conversationId = ? AND userId = ?
+    `).get(groupId, decoded.id);
+
+    if (!isAdmin && decoded.id != userId) {
+      return res.status(403).json({ error: 'Только администраторы могут удалять участников' });
+    }
+
+    // Нельзя удалить создателя группы
+    const group = db.prepare('SELECT createdBy FROM conversations WHERE id = ?').get(groupId);
+    if (group.createdBy == userId) {
+      return res.status(400).json({ error: 'Нельзя удалить создателя группы' });
+    }
+
+    db.prepare(`
+      DELETE FROM conversation_participants 
+      WHERE conversationId = ? AND userId = ?
+    `).run(groupId, userId);
+
+    // Если удаляли админа, убираем из админов
+    db.prepare(`
+      DELETE FROM group_admins 
+      WHERE conversationId = ? AND userId = ?
+    `).run(groupId, userId);
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error(error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// НАЗНАЧИТЬ АДМИНА
+app.post('/api/groups/:groupId/admins', (req, res) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    const decoded = jwt.verify(token, 'secret123');
+    const { userId } = req.body;
+    const groupId = req.params.groupId;
+
+    // Проверяем, является ли текущий пользователь создателем
+    const group = db.prepare('SELECT createdBy FROM conversations WHERE id = ?').get(groupId);
+    if (group.createdBy != decoded.id) {
+      return res.status(403).json({ error: 'Только создатель может назначать администраторов' });
+    }
+
+    db.prepare('INSERT INTO group_admins (conversationId, userId) VALUES (?, ?)')
+      .run(groupId, userId);
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error(error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// СНЯТЬ АДМИНА
+app.delete('/api/groups/:groupId/admins/:userId', (req, res) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    const decoded = jwt.verify(token, 'secret123');
+    const { groupId, userId } = req.params;
+
+    // Проверяем, является ли текущий пользователь создателем
+    const group = db.prepare('SELECT createdBy FROM conversations WHERE id = ?').get(groupId);
+    if (group.createdBy != decoded.id) {
+      return res.status(403).json({ error: 'Только создатель может снимать администраторов' });
+    }
+
+    // Нельзя снять админа с создателя
+    if (group.createdBy == userId) {
+      return res.status(400).json({ error: 'Нельзя снять администратора с создателя группы' });
+    }
+
+    db.prepare(`
+      DELETE FROM group_admins 
+      WHERE conversationId = ? AND userId = ?
+    `).run(groupId, userId);
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error(error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// ОБНОВИТЬ ИНФОРМАЦИЮ ГРУППЫ
+app.put('/api/groups/:groupId', (req, res) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    const decoded = jwt.verify(token, 'secret123');
+    const { name, description, avatar } = req.body;
+    const groupId = req.params.groupId;
+
+    // Проверяем, является ли текущий пользователь админом
+    const isAdmin = db.prepare(`
+      SELECT * FROM group_admins WHERE conversationId = ? AND userId = ?
+    `).get(groupId, decoded.id);
+
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Только администраторы могут изменять группу' });
+    }
+
+    const updates = [];
+    const values = [];
+
+    if (name) {
+      updates.push('name = ?');
+      values.push(name);
+    }
+    if (description !== undefined) {
+      updates.push('description = ?');
+      values.push(description);
+    }
+    if (avatar !== undefined) {
+      updates.push('avatar = ?');
+      values.push(avatar);
+    }
+
+    if (updates.length > 0) {
+      values.push(groupId);
+      db.prepare(`UPDATE conversations SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error(error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
 // ========== РОУТЫ ДЛЯ ЧАТОВ ==========
 
-// СОЗДАТЬ ИЛИ ПОЛУЧИТЬ ЧАТ
+// СОЗДАТЬ ИЛИ ПОЛУЧИТЬ ЛИЧНЫЙ ЧАТ
 app.post('/api/conversations', (req, res) => {
   try {
     const token = req.headers.authorization?.split(' ')[1];
@@ -405,22 +681,24 @@ app.post('/api/conversations', (req, res) => {
       SELECT c.id FROM conversations c
       JOIN conversation_participants cp1 ON c.id = cp1.conversationId
       JOIN conversation_participants cp2 ON c.id = cp2.conversationId
-      WHERE cp1.userId = ? AND cp2.userId = ?
+      WHERE c.type = 'personal' AND cp1.userId = ? AND cp2.userId = ?
     `).get(decoded.id, userId);
 
     if (existing) {
-      return res.json({ id: existing.id });
+      return res.json({ id: existing.id, type: 'personal' });
     }
 
-    // Создаём новый чат
-    const result = db.prepare('INSERT INTO conversations DEFAULT VALUES').run();
+    // Создаём новый личный чат
+    const result = db.prepare(`
+      INSERT INTO conversations (type) VALUES ('personal')
+    `).run();
     const conversationId = result.lastInsertRowid;
 
     // Добавляем участников
     db.prepare('INSERT INTO conversation_participants (conversationId, userId) VALUES (?, ?)').run(conversationId, decoded.id);
     db.prepare('INSERT INTO conversation_participants (conversationId, userId) VALUES (?, ?)').run(conversationId, userId);
 
-    res.json({ id: conversationId });
+    res.json({ id: conversationId, type: 'personal' });
   } catch (error) {
     console.error(error);
     res.status(400).json({ error: error.message });
@@ -445,13 +723,25 @@ app.get('/api/messages/:conversationId', (req, res) => {
   }
 });
 
-// ПОЛУЧИТЬ ВСЕ ЧАТЫ ПОЛЬЗОВАТЕЛЯ
+// ПОЛУЧИТЬ ВСЕ ЧАТЫ ПОЛЬЗОВАТЕЛЯ (ИСПРАВЛЕНО)
 app.get('/api/conversations/:userId', (req, res) => {
   try {
     const conversations = db.prepare(`
       SELECT 
         c.id,
+        c.name,
+        c.avatar,
+        c.description,
+        c.type,
+        c.createdBy,
         c.updatedAt,
+        (
+          SELECT COUNT(*) FROM conversation_participants WHERE conversationId = c.id
+        ) as participantsCount,
+        (
+          SELECT MAX(createdAt) FROM messages 
+          WHERE conversationId = c.id
+        ) as lastMessageTime,
         (
           SELECT json_group_array(
             json_object(
@@ -464,7 +754,7 @@ app.get('/api/conversations/:userId', (req, res) => {
           )
           FROM conversation_participants cp
           JOIN users u ON cp.userId = u.id
-          WHERE cp.conversationId = c.id AND cp.userId != ?
+          WHERE cp.conversationId = c.id
         ) as participants,
         (
           SELECT json_object(
@@ -482,8 +772,8 @@ app.get('/api/conversations/:userId', (req, res) => {
       FROM conversations c
       JOIN conversation_participants cp ON c.id = cp.conversationId
       WHERE cp.userId = ?
-      ORDER BY c.updatedAt DESC
-    `).all(req.params.userId, req.params.userId);
+      ORDER BY lastMessageTime DESC, c.updatedAt DESC
+    `).all(req.params.userId);
 
     // Парсим JSON
     conversations.forEach(c => {
@@ -495,6 +785,78 @@ app.get('/api/conversations/:userId', (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(400).json({ error: error.message });
+  }
+});
+
+// ========== РОУТ ДЛЯ УДАЛЕНИЯ ЧАТА ==========
+app.delete('/api/conversations/:conversationId', (req, res) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    const decoded = jwt.verify(token, 'secret123');
+    const conversationId = req.params.conversationId;
+
+    // Проверяем, является ли пользователь участником чата
+    const isParticipant = db.prepare(`
+      SELECT * FROM conversation_participants 
+      WHERE conversationId = ? AND userId = ?
+    `).get(conversationId, decoded.id);
+
+    if (!isParticipant) {
+      return res.status(403).json({ error: 'Вы не являетесь участником этого чата' });
+    }
+
+    // Удаляем чат (каскадно удалятся все сообщения и участники)
+    db.prepare('DELETE FROM conversations WHERE id = ?').run(conversationId);
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error(error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// ========== РОУТЫ ДЛЯ УВЕДОМЛЕНИЙ ==========
+
+// ПОЛУЧИТЬ НЕПРОЧИТАННЫЕ СООБЩЕНИЯ
+app.get('/api/unread/:userId', (req, res) => {
+  try {
+    const unread = db.prepare(`
+      SELECT 
+        conversationId,
+        COUNT(*) as count,
+        MAX(senderId) as lastSenderId,
+        MAX(createdAt) as lastMessageTime
+      FROM messages 
+      WHERE conversationId IN (
+        SELECT conversationId FROM conversation_participants WHERE userId = ?
+      )
+      AND senderId != ?
+      AND read = 0
+      GROUP BY conversationId
+    `).all(req.params.userId, req.params.userId);
+
+    res.json(unread);
+  } catch (error) {
+    console.error('Ошибка загрузки непрочитанных:', error);
+    res.status(500).json({ error: 'Ошибка загрузки непрочитанных' });
+  }
+});
+
+// ОТМЕТИТЬ СООБЩЕНИЯ КАК ПРОЧИТАННЫЕ
+app.post('/api/mark-read', (req, res) => {
+  try {
+    const { conversationId, userId } = req.body;
+    
+    db.prepare(`
+      UPDATE messages 
+      SET read = 1 
+      WHERE conversationId = ? AND senderId != ? AND read = 0
+    `).run(conversationId, userId);
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Ошибка отметки прочитанных:', error);
+    res.status(500).json({ error: 'Ошибка отметки прочитанных' });
   }
 });
 
@@ -547,8 +909,12 @@ io.on('connection', (socket) => {
         WHERE m.id = ?
       `).get(result.lastInsertRowid);
       
-      console.log('✅ Сообщение сохранено:', message);
+      console.log('✅ Сообщение сохранено в БД:', message);
       
+      // Отправляем обратно отправителю
+      socket.emit('message-sent', message);
+      
+      // Отправляем всем участникам чата
       const participants = db.prepare(`
         SELECT userId FROM conversation_participants
         WHERE conversationId = ? AND userId != ?
@@ -564,55 +930,8 @@ io.on('connection', (socket) => {
         }
       });
       
-      socket.emit('message-sent', message);
-      
     } catch (error) {
       console.error('❌ Ошибка отправки сообщения:', error);
-    }
-  });
-  
-  // Индикатор печатает
-  socket.on('typing', (data) => {
-    const { userId, receiverId, conversationId, isTyping } = data;
-    
-    for (let [sockId, onlineUserId] of onlineUsers.entries()) {
-      if (onlineUserId == receiverId) {
-        io.to(sockId).emit('typing-indicator', {
-          userId,
-          conversationId,
-          isTyping
-        });
-        break;
-      }
-    }
-  });
-  
-  // Отметка о прочтении
-  socket.on('mark-read', ({ conversationId, userId }) => {
-    try {
-      db.prepare(`
-        UPDATE messages SET read = 1
-        WHERE conversationId = ? AND senderId != ? AND read = 0
-      `).run(conversationId, userId);
-      
-      const participants = db.prepare(`
-        SELECT userId FROM conversation_participants
-        WHERE conversationId = ? AND userId != ?
-      `).all(conversationId, userId);
-      
-      participants.forEach(p => {
-        for (let [sockId, onlineUserId] of onlineUsers.entries()) {
-          if (onlineUserId == p.userId) {
-            io.to(sockId).emit('messages-read', {
-              conversationId,
-              userId
-            });
-            break;
-          }
-        }
-      });
-    } catch (error) {
-      console.error('Ошибка отметки прочитано:', error);
     }
   });
   
@@ -632,9 +951,8 @@ io.on('connection', (socket) => {
   });
 });
 
-// ========== ЗАПУСК ДЛЯ RENDER ==========
-const PORT = process.env.PORT || 10000;
-server.listen(PORT, '0.0.0.0', () => {
+const PORT = 5000;
+server.listen(PORT, () => {
   console.log(`🚀 Сервер запущен на порту ${PORT}`);
-  console.log(`📁 База данных: ${process.cwd()}/chatty.db`);
+  console.log(`📁 База данных: ${process.cwd()}\\chatty.db`);
 });
