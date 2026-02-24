@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Тест Chatty</title>
+    <style>
+        body { font-family: Arial; padding: 20px; }
+        input { display: block; margin: 10px 0; padding: 8px; width: 300px; }
+        button { padding: 10px 20px; margin-right: 10px; }
+        pre { background: #f4f4f4; padding: 10px; }
+    </style>
+</head>
+<body>
+    <h1>Тест регистрации Chatty</h1>
+    
+    <h2>Регистрация</h2>
+    <input type="email" id="regEmail" placeholder="Email" value="test@mail.com">
+    <input type="text" id="regUsername" placeholder="Username" value="testuser">
+    <input type="text" id="regName" placeholder="Имя" value="Тест Тестович">
+    <input type="password" id="regPassword" placeholder="Пароль" value="123456">
+    <button onclick="register()">Зарегистрироваться</button>
+    
+    <h2>Вход</h2>
+    <input type="text" id="loginLogin" placeholder="Email или Username" value="test@mail.com">
+    <input type="password" id="loginPassword" placeholder="Пароль" value="123456">
+    <button onclick="login()">Войти</button>
+    
+    <h2>Все пользователи</h2>
+    <button onclick="getUsers()">Показать всех</button>
+    
+    <h3>Результат:</h3>
+    <pre id="result">---</pre>
+    
+    <script>
+        const API = 'http://localhost:5000';
+        
+        async function register() {
+            const data = {
+                email: document.getElementById('regEmail').value,
+                username: document.getElementById('regUsername').value,
+                displayName: document.getElementById('regName').value,
+                password: document.getElementById('regPassword').value
+            };
+            
+            try {
+                const res = await fetch(API + '/api/register', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(data)
+                });
+                
+                const result = await res.json();
+                document.getElementById('result').textContent = JSON.stringify(result, null, 2);
+            } catch (e) {
+                document.getElementById('result').textContent = 'Ошибка: ' + e.message;
+            }
+        }
+        
+        async function login() {
+            const data = {
+                login: document.getElementById('loginLogin').value,
+                password: document.getElementById('loginPassword').value
+            };
+            
+            try {
+                const res = await fetch(API + '/api/login', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(data)
+                });
+                
+                const result = await res.json();
+                document.getElementById('result').textContent = JSON.stringify(result, null, 2);
+            } catch (e) {
+                document.getElementById('result').textContent = 'Ошибка: ' + e.message;
+            }
+        }
+        
+        async function getUsers() {
+            try {
+                const res = await fetch(API + '/api/users');
+                const result = await res.json();
+                document.getElementById('result').textContent = JSON.stringify(result, null, 2);
+            } catch (e) {
+                document.getElementById('result').textContent = 'Ошибка: ' + e.message;
+            }
+        }
+    </script>
+</body>
+</html>
